@@ -3,18 +3,17 @@
 import { useCallback, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/utils";
 import { ConversionDialog } from "./conversion-dialog";
 import { useShortcut, loadShortcut, formatShortcut } from "@/hooks/use-shortcut";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, RefreshCcw, Filter } from "lucide-react";
+import {
+  ArrowLeft, ChevronDown, LayoutGrid, PieChart, Plus, RefreshCcw, Trash2, Sparkles,
+  Mail, MoreHorizontal, Share2, Columns3, Filter, Search, ChevronLeft, ChevronRight, ArrowDown,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type Row = {
   id: string;
@@ -47,8 +46,12 @@ export function InvoiceListClient({
   const searchParams = useSearchParams();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [q, setQ] = useState(filters.q ?? "");
 
-  const shortcut = useMemo(() => (typeof window !== "undefined" ? loadShortcut() : { ctrl: true, alt: true, shift: true, key: "n" }), []);
+  const shortcut = useMemo(
+    () => (typeof window !== "undefined" ? loadShortcut() : { ctrl: true, alt: true, shift: true, key: "n" }),
+    []
+  );
   const shortcutLabel = formatShortcut(shortcut);
 
   const eligibleIds = useMemo(
@@ -58,207 +61,302 @@ export function InvoiceListClient({
 
   const selectedRows = initialItems.filter((r) => selected.has(r.id));
   const anySelected = selectedRows.length > 0;
-  const allEligibleSelectedIneligible = selectedRows.some((r) => !eligibleIds.has(r.id));
+  const hasIneligible = selectedRows.some((r) => !eligibleIds.has(r.id));
 
   const toggle = useCallback((id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }, []);
 
   const toggleAllEligible = useCallback(() => {
     const eligibleOnPage = initialItems.filter((r) => eligibleIds.has(r.id));
-    if (eligibleOnPage.every((r) => selected.has(r.id))) {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        for (const r of eligibleOnPage) next.delete(r.id);
-        return next;
-      });
-    } else {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        for (const r of eligibleOnPage) next.add(r.id);
-        return next;
-      });
-    }
+    const allSelected = eligibleOnPage.every((r) => selected.has(r.id));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const r of eligibleOnPage) allSelected ? next.delete(r.id) : next.add(r.id);
+      return next;
+    });
   }, [initialItems, eligibleIds, selected]);
 
   const openDialog = useCallback(() => {
     if (!canConvert) { toast.error("You do not have permission to convert invoices."); return; }
     if (selectedRows.length === 0) { toast.error("No invoice selected."); return; }
-    if (allEligibleSelectedIneligible) { toast.error("Only eligible VAT invoices can be converted."); return; }
+    if (hasIneligible) { toast.error("Only eligible VAT invoices can be converted."); return; }
     setDialogOpen(true);
-  }, [canConvert, selectedRows.length, allEligibleSelectedIneligible]);
+  }, [canConvert, selectedRows.length, hasIneligible]);
 
   useShortcut(shortcut, openDialog, { enabled: true });
 
   const setParam = (patch: Record<string, string | undefined>) => {
     const params = new URLSearchParams(searchParams.toString());
     for (const [k, v] of Object.entries(patch)) {
-      if (v === undefined || v === "") params.delete(k); else params.set(k, v);
+      if (v === undefined || v === "") params.delete(k);
+      else params.set(k, v);
     }
     if (!("page" in patch)) params.delete("page");
     router.push(`/invoices?${params.toString()}`);
   };
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const allEligibleChecked =
+    initialItems.filter((r) => eligibleIds.has(r.id)).length > 0 &&
+    initialItems.filter((r) => eligibleIds.has(r.id)).every((r) => selected.has(r.id));
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Invoices</h1>
-          <p className="text-sm text-muted-foreground">
-            Select eligible VAT invoices and convert to N-VAT / Damage. Shortcut:{" "}
-            <span className="font-mono">{shortcutLabel}</span>
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => router.refresh()}><RefreshCcw className="h-4 w-4" /> Refresh</Button>
-          <Button onClick={openDialog} disabled={!canConvert || !anySelected}>
-            Convert to N-VAT / Damage
-          </Button>
+    <div className="-m-4 md:-m-6">
+      {/* Command bar */}
+      <div className="flex flex-wrap items-center gap-1 border-b px-3 h-12">
+        <IconAction icon={ArrowLeft} label="Back" onClick={() => router.back()} />
+        <CmdBtn icon={LayoutGrid} label="Show As" trailing />
+        <CmdBtn icon={PieChart} label="Show Chart" />
+        <CmdBtn icon={Plus} label="New" primary />
+        <CmdBtn icon={RefreshCcw} label="Refresh" onClick={() => router.refresh()} />
+        <CmdBtn icon={Trash2} label="Delete" />
+        <CmdBtn icon={Sparkles} label="Visualize this view" />
+        <CmdBtn icon={Mail} label="Email a Link" trailing />
+        <CmdBtn
+          icon={RefreshCcw}
+          label={`Convert (${shortcutLabel})`}
+          onClick={openDialog}
+          disabled={!canConvert || !anySelected}
+          highlight
+        />
+        <CmdBtn icon={MoreHorizontal} label="" />
+        <div className="ml-auto">
+          <button className="h-8 px-3 rounded border text-sm flex items-center gap-2 hover:bg-neutral-50">
+            <Share2 className="h-4 w-4" /> Share
+            <ChevronDown className="h-3 w-3" />
+          </button>
         </div>
       </div>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base"><Filter className="h-4 w-4" /> Filters</CardTitle>
-        </CardHeader>
-        <CardContent>
+      {/* View title + filter chips */}
+      <div className="flex flex-wrap items-center gap-4 px-4 pt-4">
+        <button className="flex items-center gap-2 text-2xl font-semibold text-neutral-800">
+          My Open Invoices
+          <ChevronDown className="h-5 w-5 text-neutral-500" />
+        </button>
+        <div className="ml-auto flex items-center gap-4">
+          <button className="text-sm text-sky-700 hover:underline flex items-center gap-1">
+            <Columns3 className="h-4 w-4" /> Edit columns
+          </button>
+          <button className="text-sm text-sky-700 hover:underline flex items-center gap-1">
+            <Filter className="h-4 w-4" /> Edit filters
+          </button>
           <form
-            className="grid grid-cols-1 gap-3 md:grid-cols-6"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const fd = new FormData(e.currentTarget);
-              setParam({
-                q: String(fd.get("q") || ""),
-                customer: String(fd.get("customer") || ""),
-                from: String(fd.get("from") || ""),
-                to: String(fd.get("to") || ""),
-              });
-            }}
+            onSubmit={(e) => { e.preventDefault(); setParam({ q }); }}
+            className="h-8 w-64 flex items-center gap-2 border rounded px-2 bg-white"
           >
-            <Input name="q" placeholder="Invoice #" defaultValue={filters.q ?? ""} />
-            <Input name="customer" placeholder="Customer" defaultValue={filters.customer ?? ""} />
-            <Input name="from" type="date" defaultValue={filters.from ?? ""} />
-            <Input name="to" type="date" defaultValue={filters.to ?? ""} />
-            <Select defaultValue={filters.type} onValueChange={(v) => setParam({ type: v })}>
-              <SelectTrigger><SelectValue placeholder="Type" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All types</SelectItem>
-                <SelectItem value="VAT">VAT</SelectItem>
-                <SelectItem value="N_VAT">N-VAT</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select defaultValue={filters.status} onValueChange={(v) => setParam({ status: v })}>
-              <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All statuses</SelectItem>
-                <SelectItem value="ISSUED">Issued</SelectItem>
-                <SelectItem value="CONVERTED">Converted</SelectItem>
-                <SelectItem value="CANCELLED">Cancelled</SelectItem>
-                <SelectItem value="PENDING">Pending</SelectItem>
-              </SelectContent>
-            </Select>
-            <div className="md:col-span-6 flex justify-end gap-2">
-              <Select defaultValue={filters.sort} onValueChange={(v) => setParam({ sort: v })}>
-                <SelectTrigger className="w-56"><SelectValue placeholder="Sort" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="date_desc">Date (newest)</SelectItem>
-                  <SelectItem value="date_asc">Date (oldest)</SelectItem>
-                  <SelectItem value="number_desc">Invoice # (desc)</SelectItem>
-                  <SelectItem value="number_asc">Invoice # (asc)</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button type="submit">Apply</Button>
-              <Button type="button" variant="ghost" onClick={() => router.push("/invoices")}>Clear</Button>
-            </div>
+            <Search className="h-4 w-4 text-neutral-500" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Filter by keyword"
+              className="flex-1 bg-transparent text-sm outline-none"
+            />
           </form>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-10">
-                  <Checkbox
-                    checked={
-                      initialItems.filter((r) => eligibleIds.has(r.id)).length > 0 &&
-                      initialItems.filter((r) => eligibleIds.has(r.id)).every((r) => selected.has(r.id))
-                    }
-                    onCheckedChange={toggleAllEligible}
-                    aria-label="Select all eligible"
-                  />
-                </TableHead>
-                <TableHead>Number</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead className="text-right">Total</TableHead>
-                <TableHead className="text-right">VAT</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created by</TableHead>
-                <TableHead>Modified</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {initialItems.length === 0 && (
-                <TableRow><TableCell colSpan={10} className="text-center py-10 text-muted-foreground">No invoices match your filters.</TableCell></TableRow>
-              )}
-              {initialItems.map((r) => {
-                const eligible = eligibleIds.has(r.id);
-                return (
-                  <TableRow key={r.id} data-state={selected.has(r.id) ? "selected" : undefined}>
-                    <TableCell>
-                      <Checkbox
-                        disabled={!eligible}
-                        checked={selected.has(r.id)}
-                        onCheckedChange={() => toggle(r.id)}
-                        aria-label={`Select ${r.invoiceNumber}`}
-                      />
-                    </TableCell>
-                    <TableCell className="font-mono"><Link className="underline" href={`/invoices/${r.id}`}>{r.invoiceNumber}</Link></TableCell>
-                    <TableCell>{formatDate(r.invoiceDate)}</TableCell>
-                    <TableCell>{r.customer}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(r.totalAmount)}</TableCell>
-                    <TableCell className="text-right">{formatCurrency(r.vatAmount)}</TableCell>
-                    <TableCell><Badge variant={r.type === "VAT" ? "default" : "warning"}>{r.type === "N_VAT" ? "N-VAT" : r.type}</Badge></TableCell>
-                    <TableCell><Badge variant={statusVariant(r.status) as any}>{r.status}</Badge></TableCell>
-                    <TableCell>{r.createdBy}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">{formatDateTime(r.updatedAt)}</TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      {/* Table */}
+      <div className="mt-3 border-t">
+        <table className="w-full text-sm">
+          <thead className="bg-white">
+            <tr className="text-left border-b">
+              <th className="w-10 px-3 py-2">
+                <Checkbox
+                  checked={allEligibleChecked}
+                  onCheckedChange={toggleAllEligible}
+                  aria-label="Select all eligible"
+                />
+              </th>
+              <ColHeader label="Invoice #" />
+              <ColHeader label="Customer" />
+              <ColHeader label="Date" />
+              <ColHeader label="Total" alignRight />
+              <ColHeader label="VAT" alignRight />
+              <ColHeader label="Type" />
+              <ColHeader label="Status" />
+              <ColHeader label="Created By" />
+              <ColHeader label="Modified" sortDesc />
+            </tr>
+          </thead>
+          <tbody>
+            {initialItems.length === 0 && (
+              <tr>
+                <td colSpan={10}>
+                  <EmptyState />
+                </td>
+              </tr>
+            )}
+            {initialItems.map((r) => {
+              const eligible = eligibleIds.has(r.id);
+              const checked = selected.has(r.id);
+              return (
+                <tr
+                  key={r.id}
+                  className={cn(
+                    "border-b hover:bg-sky-50/50 transition-colors",
+                    checked && "bg-sky-50"
+                  )}
+                >
+                  <td className="px-3 py-2 align-middle">
+                    <Checkbox
+                      disabled={!eligible}
+                      checked={checked}
+                      onCheckedChange={() => toggle(r.id)}
+                      aria-label={`Select ${r.invoiceNumber}`}
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Link className="text-sky-700 hover:underline font-medium" href={`/invoices/${r.id}`}>
+                      {r.invoiceNumber}
+                    </Link>
+                  </td>
+                  <td className="px-3 py-2">{r.customer}</td>
+                  <td className="px-3 py-2">{formatDate(r.invoiceDate)}</td>
+                  <td className="px-3 py-2 text-right">{formatCurrency(r.totalAmount)}</td>
+                  <td className="px-3 py-2 text-right">{formatCurrency(r.vatAmount)}</td>
+                  <td className="px-3 py-2">
+                    <Badge variant={r.type === "VAT" ? "info" : "warning"}>
+                      {r.type === "N_VAT" ? "N-VAT" : r.type}
+                    </Badge>
+                  </td>
+                  <td className="px-3 py-2">
+                    <Badge variant={statusVariant(r.status) as any}>{r.status}</Badge>
+                  </td>
+                  <td className="px-3 py-2">{r.createdBy}</td>
+                  <td className="px-3 py-2 text-neutral-500">{formatDateTime(r.updatedAt)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
 
-      <div className="flex items-center justify-between text-sm">
+      {/* Footer / pagination */}
+      <div className="flex items-center justify-between px-4 py-3 text-xs text-neutral-600">
         <div>
-          {total} invoice(s). {selectedRows.length} selected.
-          {allEligibleSelectedIneligible && (
-            <span className="ml-2 text-destructive">Selection includes ineligible invoices — they will be ignored.</span>
+          Rows: {total}. {selectedRows.length} selected.
+          {hasIneligible && (
+            <span className="ml-2 text-red-600">Selection includes ineligible invoices — they will be ignored.</span>
           )}
+          <span className="ml-4 text-neutral-400">Shortcut: {shortcutLabel}</span>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setParam({ page: String(page - 1) })}><ChevronLeft className="h-4 w-4" /></Button>
-          <span>Page {page} / {totalPages}</span>
-          <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setParam({ page: String(page + 1) })}><ChevronRight className="h-4 w-4" /></Button>
+          <button
+            disabled={page <= 1}
+            onClick={() => setParam({ page: String(page - 1) })}
+            className="h-7 w-7 grid place-items-center border rounded disabled:opacity-40 hover:bg-neutral-100"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <span>
+            Page {page} / {totalPages}
+          </span>
+          <button
+            disabled={page >= totalPages}
+            onClick={() => setParam({ page: String(page + 1) })}
+            className="h-7 w-7 grid place-items-center border rounded disabled:opacity-40 hover:bg-neutral-100"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
       <ConversionDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        selected={selectedRows.filter((r) => eligibleIds.has(r.id)).map((r) => ({ id: r.id, invoiceNumber: r.invoiceNumber }))}
+        selected={selectedRows
+          .filter((r) => eligibleIds.has(r.id))
+          .map((r) => ({ id: r.id, invoiceNumber: r.invoiceNumber }))}
         onDone={() => setSelected(new Set())}
       />
+    </div>
+  );
+}
+
+function CmdBtn({
+  icon: Icon, label, primary, highlight, trailing, disabled, onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  primary?: boolean;
+  highlight?: boolean;
+  trailing?: boolean;
+  disabled?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "h-8 px-2 flex items-center gap-1 text-sm rounded hover:bg-neutral-100 disabled:opacity-50 disabled:hover:bg-transparent",
+        primary && "text-sky-700",
+        highlight && "text-sky-700 border border-sky-200 bg-sky-50 hover:bg-sky-100"
+      )}
+    >
+      <Icon className="h-4 w-4" />
+      {label && <span className="whitespace-nowrap">{label}</span>}
+      {trailing && <ChevronDown className="h-3 w-3 opacity-60" />}
+    </button>
+  );
+}
+
+function IconAction({
+  icon: Icon, label, onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      className="h-8 w-8 grid place-items-center rounded hover:bg-neutral-100"
+    >
+      <Icon className="h-4 w-4" />
+    </button>
+  );
+}
+
+function ColHeader({
+  label, alignRight, sortDesc,
+}: { label: string; alignRight?: boolean; sortDesc?: boolean }) {
+  return (
+    <th
+      className={cn(
+        "px-3 py-2 text-neutral-600 font-medium",
+        alignRight && "text-right"
+      )}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {sortDesc && <ArrowDown className="h-3 w-3 text-sky-700" />}
+        <ChevronDown className="h-3 w-3 text-neutral-400" />
+      </span>
+    </th>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center py-24 text-neutral-500">
+      <div className="h-40 w-40 rounded-full bg-neutral-200 grid place-items-center relative">
+        <div className="grid grid-cols-3 gap-1.5">
+          {Array.from({ length: 9 }).map((_, i) => (
+            <div key={i} className="h-6 w-6 rounded bg-white/80" />
+          ))}
+        </div>
+        <Sparkles className="absolute right-3 top-3 h-5 w-5 text-neutral-400" />
+      </div>
+      <div className="mt-4 text-sm">We didn&apos;t find anything to show here</div>
     </div>
   );
 }

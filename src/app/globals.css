@@ -50,5 +50,9 @@
 
 @layer base {
   * { @apply border-border; }
-  body { @apply bg-background text-foreground; font-feature-settings: "cv02", "cv03", "cv04"; }
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04";
+  }
 }
