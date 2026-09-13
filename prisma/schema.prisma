@@ -1,0 +1,245 @@
+// Prisma schema for VAT / N-VAT (Damage) invoice management
+// PostgreSQL. Never hard-delete invoices; conversion is additive.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  USER
+  AUDITOR
+}
+
+enum InvoiceType {
+  VAT
+  N_VAT
+}
+
+enum InvoiceStatus {
+  PENDING
+  ISSUED
+  CONVERTED
+  CANCELLED
+}
+
+enum StockTxnType {
+  SALE
+  PURCHASE
+  DAMAGE
+  N_VAT_ADJUSTMENT
+  STOCK_ADJUSTMENT
+  RETURN
+}
+
+enum ConversionType {
+  DAMAGE
+  N_VAT_ADJUSTMENT
+}
+
+model Company {
+  id           String   @id @default(cuid())
+  name         String
+  vatNumber    String?
+  address      String?
+  phone        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users     User[]
+  customers Customer[]
+  products  Product[]
+  invoices  Invoice[]
+  settings  SystemSetting[]
+}
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  name           String
+  passwordHash   String
+  role           Role     @default(USER)
+  canConvert     Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  createdInvoices     Invoice[]           @relation("InvoiceCreatedBy")
+  modifiedInvoices    Invoice[]           @relation("InvoiceModifiedBy")
+  conversions         InvoiceConversion[]
+  stockTxns           StockTransaction[]
+  auditLogs           AuditLog[]
+
+  @@index([companyId])
+}
+
+model Customer {
+  id         String   @id @default(cuid())
+  code       String
+  name       String
+  email      String?
+  phone      String?
+  address    String?
+  vatNumber  String?
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id])
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  invoices Invoice[]
+
+  @@unique([companyId, code])
+  @@index([companyId, name])
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  sku         String
+  name        String
+  description String?
+  unitPrice   Decimal  @db.Decimal(14, 2)
+  vatRate     Decimal  @db.Decimal(5, 2) @default(15.00)
+  stockQty    Decimal  @db.Decimal(14, 3) @default(0)
+  lowStock    Decimal  @db.Decimal(14, 3) @default(10)
+  isActive    Boolean  @default(true)
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  invoiceItems InvoiceItem[]
+  stockTxns    StockTransaction[]
+
+  @@unique([companyId, sku])
+  @@index([companyId, name])
+}
+
+model Invoice {
+  id             String        @id @default(cuid())
+  invoiceNumber  String        @unique
+  invoiceDate    DateTime
+  customerId     String
+  customer       Customer      @relation(fields: [customerId], references: [id])
+  companyId      String
+  company        Company       @relation(fields: [companyId], references: [id])
+  type           InvoiceType   @default(VAT)
+  status         InvoiceStatus @default(ISSUED)
+  subtotal       Decimal       @db.Decimal(14, 2)
+  vatAmount      Decimal       @db.Decimal(14, 2)
+  totalAmount    Decimal       @db.Decimal(14, 2)
+  notes          String?
+  // Concurrency guard: incremented on every mutation (Prisma optimistic lock)
+  version        Int           @default(0)
+
+  createdById    String
+  createdBy      User          @relation("InvoiceCreatedBy", fields: [createdById], references: [id])
+  modifiedById   String?
+  modifiedBy     User?         @relation("InvoiceModifiedBy", fields: [modifiedById], references: [id])
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  items        InvoiceItem[]
+  conversions  InvoiceConversion[]
+  stockTxns    StockTransaction[]
+
+  @@index([companyId, invoiceDate])
+  @@index([companyId, status])
+  @@index([companyId, type])
+  @@index([customerId])
+}
+
+model InvoiceItem {
+  id         String   @id @default(cuid())
+  invoiceId  String
+  invoice    Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id])
+  quantity   Decimal  @db.Decimal(14, 3)
+  unitPrice  Decimal  @db.Decimal(14, 2)
+  vatRate    Decimal  @db.Decimal(5, 2)
+  vatAmount  Decimal  @db.Decimal(14, 2)
+  lineTotal  Decimal  @db.Decimal(14, 2)
+
+  @@index([invoiceId])
+  @@index([productId])
+}
+
+model InvoiceConversion {
+  id                    String         @id @default(cuid())
+  invoiceId             String
+  invoice               Invoice        @relation(fields: [invoiceId], references: [id])
+  originalInvoiceNumber String
+  originalInvoiceDate   DateTime
+  originalType          InvoiceType
+  originalStatus        InvoiceStatus
+  newStatus             InvoiceStatus
+  conversionType        ConversionType
+  remark                String         // Mandatory. Min 5 / max 500 (enforced at API + Zod)
+  originalVatAmount     Decimal        @db.Decimal(14, 2)
+  originalTotalAmount   Decimal        @db.Decimal(14, 2)
+  // Snapshot of affected line items at conversion time
+  affectedItems         Json
+  convertedById         String
+  convertedBy           User           @relation(fields: [convertedById], references: [id])
+  convertedAt           DateTime       @default(now())
+  createdAt             DateTime       @default(now())
+
+  @@index([invoiceId])
+  @@index([convertedAt])
+}
+
+model StockTransaction {
+  id           String       @id @default(cuid())
+  productId    String
+  product      Product      @relation(fields: [productId], references: [id])
+  type         StockTxnType
+  quantity     Decimal      @db.Decimal(14, 3) // signed: +in / -out
+  balanceAfter Decimal      @db.Decimal(14, 3)
+  invoiceId    String?
+  invoice      Invoice?     @relation(fields: [invoiceId], references: [id])
+  conversionId String?
+  reference    String?
+  note         String?
+  userId       String
+  user         User         @relation(fields: [userId], references: [id])
+  createdAt    DateTime     @default(now())
+
+  @@index([productId, createdAt])
+  @@index([invoiceId])
+  @@index([type])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id])
+  action     String
+  entity     String
+  entityId   String?
+  metadata   Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
+
+model SystemSetting {
+  id         String   @id @default(cuid())
+  key        String
+  value      String
+  companyId  String?
+  company    Company? @relation(fields: [companyId], references: [id])
+  updatedAt  DateTime @updatedAt
+
+  @@unique([companyId, key])
+}
